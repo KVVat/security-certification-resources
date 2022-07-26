@@ -38,7 +38,7 @@ android {
             keyPassword 'android'
         }
     }
-    compileSdkVersion 32
+    compileSdkVersion 33
     defaultConfig {
         applicationId "com.android.certifications.niap.permissions"
         minSdkVersion 28

@@ -760,7 +760,7 @@
     <uses-permission android:name="android.permission.RECORD_BACKGROUND_AUDIO" />
 
     <!-- New permissions for Android 12 sv2 -->
-    <uses-permission android:name="android.permission.TRIGGER_SHELL_PROFCOLLECT_UPLOAD" />
+    <uses-permission android:name="android.permission.TRIGGER_SHELL_PROFCOLLECT_UPLOAD"   />
     <uses-permission android:name="android.permission.ALLOW_PLACE_IN_MULTI_PANE_SETTINGS" />
     <uses-permission android:name="android.permission.LAUNCH_MULTI_PANE_SETTINGS_DEEP_LINK" />
     <uses-permission android:name="android.permission.ALLOW_SLIPPERY_TOUCHES" />

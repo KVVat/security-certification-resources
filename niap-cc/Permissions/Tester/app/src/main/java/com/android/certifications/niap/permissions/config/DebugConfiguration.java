@@ -21,6 +21,7 @@ import android.app.Activity;
 import com.android.certifications.niap.permissions.BasePermissionTester;
 import com.android.certifications.niap.permissions.R;
 import com.android.certifications.niap.permissions.SignaturePermissionTester;
+import com.android.certifications.niap.permissions.utils.SignaturePermissions;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -63,7 +64,10 @@ class DebugConfiguration implements TestConfiguration {
         // Returning a single signature permission will allow debug of the test for that one
         // permission; this is useful during development when creating tests for new permissions
         // declared in a release.
-        return Optional.empty();
+        List<String> targets = new ArrayList<>();
+        targets.add(SignaturePermissions.permission.TRIGGER_SHELL_PROFCOLLECT_UPLOAD);
+
+        return Optional.of(targets);
     }
 
     @Override
