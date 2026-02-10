@@ -90,3 +90,34 @@ biometric unlock key
 #### File : (NEW)[LockSettingsService.java] 
 1. setCeStorageProtection() 
     - FBE KEK, It used by encrypt the CE Storage 
+
+## Patch Management Workflow
+
+This version introduces scripts to manage patches across the AOSP tree efficiently from the root directory without manual navigation.
+
+### 1. Generating Patches (Updating this Repository)
+Use this workflow to update the patch files in this repository with your current AOSP modifications:
+
+1.  **Prepare your AOSP tree**: Ensure the target files and their original backups (`.orig`) are present in your AOSP source.
+2.  **Run the generator**: Execute the following command from this directory:
+    ```bash
+    ./generate_patches.sh <PATH_TO_AOSP_ROOT>
+    ```
+3.  **Review in Staging**: The script creates a local `patches/` directory and generates updated diffs there, mirroring the AOSP structure.
+4.  **Sync and Clean**: Once verified, overwrite the repository files and remove the staging area:
+    ```bash
+    cp -r patches/* .
+    rm -rf patches
+    ```
+5.  **Commit**: Use Android Studio to commit and push the changes (recommended to handle OAuth authentication smoothly).
+
+### 2. Applying Patches
+To apply the patches from this repository to a fresh AOSP tree:
+
+1.  **Run the apply script**: (Assuming `apply_patches.sh` is available)
+    ```bash
+    ./apply_patches.sh <PATH_TO_AOSP_ROOT>
+    ```
+    - The script automatically navigates to the target directories.
+    - It applies patches and creates `.orig` backups for safety.
+    - Already applied patches are skipped to prevent conflicts.
