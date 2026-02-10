@@ -2,24 +2,24 @@
 
 # ==============================================================================
 # Script Name: generate_patches.sh
-# Description: AOSP作業ディレクトリ内の変更(.origとの差分)を検出し、
-#              このフォルダ内の 'patches' ディレクトリ以下に構造を維持して生成します。
-# Location:    niap-cc/KeyTestingPatches/Android16/ に配置してください。
+# Description: Detects changes (differences from .orig) in the AOSP working directory,
+#              and generates them in the 'patches' directory within this folder, maintaining the structure.
+# Location:    Place in niap-cc/KeyTestingPatches/Android16/.
 # Usage:       ./generate_patches.sh <AOSP_ROOT_PATH>
 # ==============================================================================
 
-# 1. 引数チェック
+# 1. Argument check
 if [ -z "$1" ]; then
-    echo "❌ エラー: AOSPのルートディレクトリを指定してください。"
-    echo "使用法: ./generate_patches.sh <AOSPのフルパス>"
+    echo "❌ Error: Please specify the AOSP root directory."
+    echo "Usage: ./generate_patches.sh <AOSP_FULL_PATH>"
     exit 1
 fi
 
-# 2. パス設定
+# 2. Path settings
 AOSP_ROOT=$(realpath "$1")
-# スクリプトが存在するディレクトリ（= リポジトリ上のパッチルート）
+# Directory where the script exists (= patch root on the repository)
 REPO_PATCH_ROOT=$(dirname "$(realpath "$0")")
-# 出力先ディレクトリ (一時保存用)
+# Output directory (for temporary storage)
 OUTPUT_DIR="$REPO_PATCH_ROOT/patches"
 
 echo "========================================================"
@@ -29,41 +29,41 @@ echo "   - Output Dir:      $OUTPUT_DIR"
 echo "   - AOSP Source Dir: $AOSP_ROOT"
 echo "========================================================"
 
-# 出力先ディレクトリの作成（なければ）
+# Create output directory (if it doesn't exist)
 mkdir -p "$OUTPUT_DIR"
 
-# 3. リポジトリ内の .patch ファイルを探索（patchesフォルダ自体は除外）
-#    -path "$OUTPUT_DIR" -prune で出力先フォルダ内の再帰検索を防止
+# 3. Search for .patch files in the repository (excluding the patches folder itself)
+#    -path "$OUTPUT_DIR" -prune prevents recursive search within the output folder
 find "$REPO_PATCH_ROOT" -path "$OUTPUT_DIR" -prune -o -type f -name "*.patch" -print | sort | while read template_patch_path; do
 
-    # リポジトリルートからの相対パスを取得 (例: system/vold/KeyStorage.cpp.patch)
+    # Get the relative path from the repository root (e.g., system/vold/KeyStorage.cpp.patch)
     rel_path="${template_patch_path#$REPO_PATCH_ROOT/}"
 
-    # 出力先のフルパスを決定
+    # Determine the full path of the output destination
     dest_patch_path="$OUTPUT_DIR/$rel_path"
 
-    # パッチファイル名から AOSP上の対象ファイルパスを逆算
+    # Infer the target file path on AOSP from the patch file name
     src_rel_path="${rel_path%.patch}"
 
-    # AOSP上の実ファイルパス
+    # Actual file path on AOSP
     target_src="$AOSP_ROOT/$src_rel_path"
     target_orig="$target_src.orig"
 
     echo "🔍 Checking: $src_rel_path"
 
-    # 4. AOSP側に .orig と 編集後のファイルが存在するか確認
+    # 4. Check if .orig and the modified file exist on the AOSP side
     if [[ -f "$target_src" && -f "$target_orig" ]]; then
 
-        # 出力先のサブディレクトリ構造を作成 (例: patches/system/vold/)
+        # Create the subdirectory structure of the output destination (e.g., patches/system/vold/)
         mkdir -p "$(dirname "$dest_patch_path")"
 
         echo "   ⚡ Generating patch to staging area..."
 
-        # 5. diff を生成
+        # 5. Generate diff
         (
             cd "$AOSP_ROOT" || exit
             # -u: Unified format
-            # パスはリポジトリの構造に合わせて相対パスで出力
+            # Output paths are relative to match the repository structure
             diff -u "$src_rel_path.orig" "$src_rel_path" > "$dest_patch_path"
         )
 
@@ -74,10 +74,10 @@ find "$REPO_PATCH_ROOT" -path "$OUTPUT_DIR" -prune -o -type f -name "*.patch" -p
         fi
 
     else
-        echo "   ⏭️  Skip: AOSP側に .orig または 対象ファイルが見つかりません。"
+        echo "   ⏭️  Skip: .orig or target file not found on the AOSP side."
     fi
     echo "--------------------------------------------------------"
 done
 
-echo "🎉 全ての処理が完了しました。"
-echo "📁 出力先: $OUTPUT_DIR"
+echo "🎉 All processes have been completed."
+echo "📁 Output destination: $OUTPUT_DIR"
