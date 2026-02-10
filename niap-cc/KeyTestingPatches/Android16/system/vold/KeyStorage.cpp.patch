@@ -1,6 +1,6 @@
---- KeyStorage.cpp.orig	2025-11-17 02:27:40.246730161 +0000
-+++ KeyStorage.cpp	2025-11-19 09:50:15.685241084 +0000
-@@ -620,6 +620,25 @@
+--- system/vold/KeyStorage.cpp.orig	2025-11-17 02:27:40.246730161 +0000
++++ system/vold/KeyStorage.cpp	2025-11-26 03:31:04.963478089 +0000
+@@ -620,6 +620,24 @@
              return false;
          }
      }
@@ -17,11 +17,10 @@
 +    StrToHex(appId,hexAppId);
 +    hexAppId.push_back('\0');
 +    
-+    
-+    LOG(DEBUG) << "KMD Table 4. " << dir << ": " << hexKey.data();
++    LOG(DEBUG) << "KMD.4 " << dir << ": " << hexKey.data();
 +    //The Strings keep binary
-+    LOG(DEBUG) << "KMD Table 4. secdiccardablehash: " << hexSecDis.data();
-+    LOG(DEBUG) << "KMD Table 4. application Id(secdis+aut): " << hexAppId.data();
++    LOG(DEBUG) << "KMD.4 secdiccardablehash: " << hexSecDis.data();
++    LOG(DEBUG) << "KMD.4 application Id(secdis+aut): " << hexAppId.data();
 +
      return true;
  }

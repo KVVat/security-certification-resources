@@ -1,5 +1,5 @@
---- super_key.rs.orig	2025-11-19 04:18:56.390666511 +0000
-+++ super_key.rs	2025-11-19 04:18:29.372157563 +0000
+--- system/security/keystore2/src/super_key.rs.orig	2025-11-19 04:18:56.390666511 +0000
++++ system/security/keystore2/src/super_key.rs	2026-01-05 08:17:47.240532909 +0000
 @@ -51,6 +51,7 @@
      sync::{Mutex, RwLock, Weak},
  };
@@ -24,12 +24,13 @@
  /// A particular user may have several superencryption keys in the database, each for a
  /// different purpose, distinguished by alias. Each is associated with a static
  /// constant of this type.
-@@ -538,6 +548,12 @@
+@@ -538,11 +548,19 @@
                          .derive_key_hkdf(salt, AES_256_KEY_LENGTH)
                          .context(ks_err!("Failed to derive key from password."))?;
  
 +                    log::debug!("KMD.8 keystore super key extract(param):{}",
-+                        format!("Present: salt: {:02x?}, iv: {:02x?}, aead_tag: {:02x?}.",
++                        format!("Present: key encryption key {:?}, salt: {:02x?}, iv: {:02x?}, aead_tag: {:02x?}.",
++                        key,//?zvec?
 +                        salt,
 +                        iv,
 +                        tag));
@@ -37,7 +38,13 @@
                      aes_gcm_decrypt(blob, iv, tag, &key).or_else(|_e| {
                          // Handle old key stored before the switch to HKDF.
                          let key = pw
-@@ -560,6 +576,7 @@
+                             .derive_key_pbkdf2(salt, AES_256_KEY_LENGTH)
+                             .context(ks_err!("Failed to derive key from password (PBKDF2)."))?;
++
+                         aes_gcm_decrypt(blob, iv, tag, &key)
+                             .context(ks_err!("Failed to decrypt key blob."))
+                     })?
+@@ -560,6 +578,7 @@
                      ));
                  }
              };
@@ -45,13 +52,13 @@
              Ok(Arc::new(SuperKey {
                  algorithm,
                  key,
-@@ -582,13 +599,23 @@
+@@ -582,13 +601,23 @@
          let derived_key = pw
              .derive_key_hkdf(&salt, AES_256_KEY_LENGTH)
              .context(ks_err!("Failed to derive key from password."))?;
 +
 +        log::debug!("KMD.8 keystore encrypt password(param):{}",
-+            format!("derived_key: {:?}; Present: salt: {:02x?}.",derived_key,
++            format!("superkey: {:02x?} derived_key: {:02x?}; Present: salt: {:02x?}.",super_key,derived_key,
 +            salt));
 +
          let mut metadata = BlobMetaData::new();
@@ -69,7 +76,7 @@
          Ok((encrypted_key, metadata))
      }
  
-@@ -602,12 +629,26 @@
+@@ -602,12 +631,26 @@
          if super_key.algorithm != SuperEncryptionAlgorithm::Aes256Gcm {
              return Err(Error::sys()).context(ks_err!("unexpected algorithm"));
          }
@@ -96,17 +103,24 @@
          Ok((encrypted_key, metadata))
      }
  
-@@ -648,11 +689,22 @@
+@@ -644,15 +687,29 @@
+                 .sec1_public_key()
+                 .ok_or_else(Error::sys)
+                 .context(ks_err!("sec1_public_key missing."))?;
++
++            log::debug!("KMD.8 keystore encrypt-hybrid PublicKey :{}",format!("{:02x?}",public_key));
++
+             let mut metadata = BlobMetaData::new();
              let (ephem_key, salt, iv, encrypted_key, aead_tag) =
                  ECDHPrivateKey::encrypt_message(public_key, key_blob)
                      .context(ks_err!("ECDHPrivateKey::encrypt_message failed."))?;
 +
-+            log::debug!("KMD.8 keystore encrypt ecdh-key(param):{}",
-+                format!("Present: salt: {:02x?}, iv: {:02x?}, aead_tag: {:02x?}",
++            log::debug!("KMD.8 keystore encrypt-hibrid ecdh-key(param):{}",
++                format!("Params: salt: {:02x?}, iv: {:02x?}, aead_tag: {:02x?}",
 +                salt,
 +                iv,
 +                aead_tag));
-+            log::debug!("KMD.8 keystore encrypt ecdh-key Encrypted Key:{} PublicKey:{}",format!("{:02x?}",encrypted_key),format!("{:02x?}",ephem_key));
++            log::debug!("KMD.8 keystore encrypt-hybrid Encrypted Key:{} EphemKey:{}",format!("{:02x?}",encrypted_key),format!("{:02x?}",ephem_key));
 +
              metadata.add(BlobMetaEntry::PublicKey(ephem_key));
              metadata.add(BlobMetaEntry::Salt(salt));
@@ -119,7 +133,7 @@
              Ok((encrypted_key, metadata))
          }
      }
-@@ -761,6 +813,11 @@
+@@ -761,6 +818,11 @@
                  )
              }
          };
@@ -131,7 +145,7 @@
          // Derive an AES-256 key from the password and re-encrypt the super key before we insert it
          // in the database.
          let (encrypted_super_key, blob_metadata) =
-@@ -772,6 +829,8 @@
+@@ -772,6 +834,8 @@
          let key_entry = db
              .store_super_key(user_id, key_type, &encrypted_super_key, &blob_metadata, &key_metadata)
              .context(ks_err!("Failed to store super key."))?;
@@ -140,16 +154,26 @@
          Ok(Arc::new(SuperKey {
              algorithm: key_type.algorithm,
              key: super_key,
-@@ -829,6 +888,8 @@
+@@ -829,6 +893,8 @@
              return Ok(());
          }
  
-+        log::debug!("KMD.8 unlock unlocked device required keys symmetric");
++        log::debug!("KMD.8 unlock unlocked device required keys. using password.");
 +
          let aes = if let Some(symmetric) = symmetric {
              // This is weird. If this point is reached only one of the UnlockedDeviceRequired super
              // keys was initialized. This should never happen.
-@@ -927,6 +988,13 @@
+@@ -906,6 +972,9 @@
+                         HardwareAuthenticatorType::FINGERPRINT,
+                     ),
+                 ];
++
++                log::debug!("KMD.8 class3 biometric unlock encrypting key(BUK):{:?}",encrypting_key);
++
+                 for sid in unlocking_sids {
+                     key_params.push(KeyParameterValue::UserSecureID(*sid));
+                 }
+@@ -927,6 +996,13 @@
                      symmetric: LockedKey::new(&encrypting_key, &aes)?,
                      private: LockedKey::new(&encrypting_key, &ecdh)?,
                  });
@@ -163,3 +187,12 @@
                  Ok(())
              })();
              if let Err(e) = res {
+@@ -973,7 +1049,7 @@
+         log::info!("UnlockedDeviceRequired super keys for user {user_id} are {status}.");
+     }
+ 
+-    /// User has unlocked, not using a password. See if any of our stored auth tokens can be used
++    /// User has unlocked, not using a f. See if any of our stored auth tokens can be used
+     /// to unlock the keys protecting UNLOCKED_DEVICE_REQUIRED keys.
+     pub fn try_unlock_user_with_biometric(
+         &mut self,
