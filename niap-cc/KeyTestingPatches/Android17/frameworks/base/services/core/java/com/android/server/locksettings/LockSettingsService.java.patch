@@ -1,0 +1,46 @@
+diff --git a/services/core/java/com/android/server/locksettings/LockSettingsService.java b/services/core/java/com/android/server/locksettings/LockSettingsService.java
+index e5054ea40ae8..da27a25921b7 100644
+--- a/services/core/java/com/android/server/locksettings/LockSettingsService.java
++++ b/services/core/java/com/android/server/locksettings/LockSettingsService.java
+@@ -240,6 +240,7 @@ import javax.crypto.NoSuchPaddingException;
+  */
+ public class LockSettingsService extends ILockSettings.Stub {
+     private static final String TAG = "LockSettingsService";
++    private static final String TAGKMD = "LockSettingsService(KMD.3)";
+ 
+     private static final String SEPARATE_PROFILE_CHALLENGE_KEY = "lockscreen.profilechallenge";
+     private static final String PREV_LSKF_BASED_PROTECTOR_ID_KEY = "prev-sp-handle";
+@@ -2400,6 +2401,10 @@ public class LockSettingsService extends ILockSettings.Stub {
+ 
+     private void setCeStorageProtection(@UserIdInt int userId, SyntheticPassword sp) {
+         final byte[] secret = sp.deriveFileBasedEncryptionKey();
++
++        String hexPwdToken = String.valueOf(HexEncoding.encode(secret));
++        Log.i(TAGKMD, "KMD.3 FBE KEY(setCeStorageProtection())" + hexPwdToken);
++
+         try {
+             mStorageManagerInternal.setCeStorageProtection(userId, secret);
+         } catch (RuntimeException e) {
+@@ -2431,6 +2436,10 @@ public class LockSettingsService extends ILockSettings.Stub {
+         }
+         final String userType = isUserSecure(userId) ? "secured" : "unsecured";
+         final byte[] secret = sp.deriveFileBasedEncryptionKey();
++
++        String hexPwdToken = String.valueOf(libcore.util.HexEncoding.encode(secret));
++        Log.i(TAGKMD, "KMD.3 FBE KEY(unlockCeStorage()) " + hexPwdToken);
++
+         try {
+             mStorageManagerInternal.unlockCeStorage(userId, secret);
+             Slogf.i(TAG, "Unlocked CE storage for %s user %d", userType, userId);
+@@ -3820,6 +3829,11 @@ public class LockSettingsService extends ILockSettings.Stub {
+         } finally {
+             Binder.restoreCallingIdentity(identity);
+         }
++
++        if(mSpManager != null){
++            final IndentingPrintWriter pw = new IndentingPrintWriter(printWriter, "  ");
++            mSpManager.dump(pw);
++        }
+     }
+ 
+     private void dumpInternal(PrintWriter printWriter) {
