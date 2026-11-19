@@ -35,7 +35,22 @@ import javax.net.ssl.SSLSocketFactory
 
 class EstClient(private val context: Context) {
 
-    private val client: OkHttpClient = OkHttpClient.Builder().build()
+    private val client: OkHttpClient by lazy {
+        val tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm()).apply {
+            init(null as KeyStore?)
+        }
+        val systemTm = tmf.trustManagers.first { it is X509TrustManager } as X509TrustManager
+        val sslContext = SSLContext.getInstance("TLS").apply {
+            init(null, arrayOf(systemTm), null)
+        }
+        val emsSocketFactory = com.android.niap.cert.validator.VerifiableSSLSocketFactory(
+            delegate = sslContext.socketFactory,
+            requireExtendedMasterSecret = true
+        )
+        OkHttpClient.Builder()
+            .sslSocketFactory(emsSocketFactory, systemTm)
+            .build()
+    }
 
     var lastError: String? = null
 
@@ -140,7 +155,12 @@ class EstClient(private val context: Context) {
             init(null, arrayOf(x509TrustManager), null)
         }
 
-        return Pair(sslContext.socketFactory, x509TrustManager)
+        val emsSocketFactory = com.android.niap.cert.validator.VerifiableSSLSocketFactory(
+            delegate = sslContext.socketFactory,
+            requireExtendedMasterSecret = true
+        )
+
+        return Pair(emsSocketFactory, x509TrustManager)
     }
 
     fun revokeCertificate(alias: String): Boolean {

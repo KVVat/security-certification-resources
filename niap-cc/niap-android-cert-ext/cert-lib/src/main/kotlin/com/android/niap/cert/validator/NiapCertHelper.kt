@@ -37,7 +37,8 @@ class NiapCertHelper private constructor(
     private val validator: NiapCertValidator = NiapCertValidator(),
     private val allowedCipherSuites: List<String>? = null,
     private val trustAnchorPolicy: TrustAnchorOptions = TrustAnchorOptions.BOTH_CA,
-    private val enforceTls12: Boolean = true
+    private val enforceTls12: Boolean = false,
+    private val requireExtendedMasterSecret: Boolean = true
 ) {
     enum class TrustAnchorOptions {
         USER_CA_ONLY,
@@ -94,7 +95,8 @@ class NiapCertHelper private constructor(
             var enforceMandatoryExtensions = true
             var enforceEku = true
             var enforceCaConstraints = true
-            var enforceTls12 = true
+            var enforceTls12 = false
+            var requireExtendedMasterSecret = true
             var requiredEkus = listOf("serverAuth")
             
             var eventType = parser.eventType
@@ -133,6 +135,9 @@ class NiapCertHelper private constructor(
                                 "enforce-tls-1-2" -> {
                                     enforceTls12 = text.toBoolean()
                                 }
+                                "require-extended-master-secret" -> {
+                                    requireExtendedMasterSecret = text.toBoolean()
+                                }
                                 "required-eku" -> {
                                     requiredEkus = text.split(",").map { it.trim() }.filter { it.isNotEmpty() }
                                 }
@@ -156,7 +161,13 @@ class NiapCertHelper private constructor(
                 requiredEkus = requiredEkus
             )
             val cipherSuites = if (allowedCiphers.isNotEmpty()) allowedCiphers else null
-            return NiapCertHelper(validator, cipherSuites, trustAnchorPolicy, enforceTls12)
+            return NiapCertHelper(
+                validator,
+                cipherSuites,
+                trustAnchorPolicy,
+                enforceTls12,
+                requireExtendedMasterSecret
+            )
         }
     }
 
@@ -234,8 +245,12 @@ class NiapCertHelper private constructor(
         
         val baseFactory = sslContext.socketFactory
         
-        return if (allowedCipherSuites != null) {
-            CipherEnforcingSSLSocketFactory(baseFactory, allowedCipherSuites.toTypedArray())
+        return if (allowedCipherSuites != null || requireExtendedMasterSecret) {
+            VerifiableSSLSocketFactory(
+                delegate = baseFactory,
+                allowedCipherSuites = allowedCipherSuites?.toTypedArray(),
+                requireExtendedMasterSecret = requireExtendedMasterSecret
+            )
         } else {
             baseFactory
         }
@@ -292,9 +307,18 @@ class NiapCertHelper private constructor(
         }
         
         val connectionSpec = connectionSpecBuilder.build()
+
+        val socketFactory = if (requireExtendedMasterSecret) {
+            VerifiableSSLSocketFactory(
+                delegate = sslContext.socketFactory,
+                requireExtendedMasterSecret = true
+            )
+        } else {
+            sslContext.socketFactory
+        }
             
         return builder
-            .sslSocketFactory(sslContext.socketFactory, niapTrustManager)
+            .sslSocketFactory(socketFactory, niapTrustManager)
             .connectionSpecs(listOf(connectionSpec))
     }
 
@@ -320,45 +344,6 @@ class NiapCertHelper private constructor(
 
         override fun getAcceptedIssuers(): Array<java.security.cert.X509Certificate> {
             return systemTm.acceptedIssuers + customTm.acceptedIssuers
-        }
-    }
-
-    private class CipherEnforcingSSLSocketFactory(
-        private val delegate: SSLSocketFactory,
-        private val allowedCipherSuites: Array<String>
-    ) : SSLSocketFactory() {
-
-        override fun getDefaultCipherSuites(): Array<String> = allowedCipherSuites
-        override fun getSupportedCipherSuites(): Array<String> = allowedCipherSuites
-
-        override fun createSocket(s: java.net.Socket?, host: String?, port: Int, autoClose: Boolean): java.net.Socket {
-            val socket = delegate.createSocket(s, host, port, autoClose) as javax.net.ssl.SSLSocket
-            socket.enabledCipherSuites = allowedCipherSuites
-            return socket
-        }
-
-        override fun createSocket(host: String?, port: Int): java.net.Socket {
-            val socket = delegate.createSocket(host, port) as javax.net.ssl.SSLSocket
-            socket.enabledCipherSuites = allowedCipherSuites
-            return socket
-        }
-
-        override fun createSocket(host: String?, port: Int, localHost: java.net.InetAddress?, localPort: Int): java.net.Socket {
-            val socket = delegate.createSocket(host, port, localHost, localPort) as javax.net.ssl.SSLSocket
-            socket.enabledCipherSuites = allowedCipherSuites
-            return socket
-        }
-
-        override fun createSocket(host: java.net.InetAddress?, port: Int): java.net.Socket {
-            val socket = delegate.createSocket(host, port) as javax.net.ssl.SSLSocket
-            socket.enabledCipherSuites = allowedCipherSuites
-            return socket
-        }
-
-        override fun createSocket(address: java.net.InetAddress?, port: Int, localAddress: java.net.InetAddress?, localPort: Int): java.net.Socket {
-            val socket = delegate.createSocket(address, port, localAddress, localPort) as javax.net.ssl.SSLSocket
-            socket.enabledCipherSuites = allowedCipherSuites
-            return socket
         }
     }
 }

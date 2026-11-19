@@ -225,18 +225,34 @@ class NiapCertManager(private val context: Context) {
     }
 
     /**
+     * Returns an [javax.net.ssl.SSLSocketFactory] backed by [getSslContext] that also enforces
+     * the TLS Extended Master Secret (EMS) extension on TLS 1.2 connections.
+     */
+    fun getSslSocketFactory(
+        alias: String,
+        trustedCaPem: String? = null,
+        requireExtendedMasterSecret: Boolean = true
+    ): javax.net.ssl.SSLSocketFactory {
+        val sslCtx = getSslContext(alias, trustedCaPem)
+        return com.android.niap.cert.validator.VerifiableSSLSocketFactory(
+            delegate = sslCtx.socketFactory,
+            requireExtendedMasterSecret = requireExtendedMasterSecret
+        )
+    }
+
+    /**
      * Performs an mTLS GET request to [protectedUrl] using the enrolled certificate.
      *
      * Kept as a thin convenience wrapper around [getSslContext]; new callers should
-     * use [getKeyManager] / [getSslContext] directly with their preferred HTTP stack.
+     * use [getKeyManager] / [getSslSocketFactory] directly with their preferred HTTP stack.
      * Returns "HTTP <code>\n<body>" or "ERROR\n<message>".
      */
     fun verifyMtls(alias: String, protectedUrl: String, trustedCaPem: String): String {
         return try {
-            val sslCtx = getSslContext(alias, trustedCaPem)
+            val socketFactory = getSslSocketFactory(alias, trustedCaPem)
             val tm = buildTrustManager(trustedCaPem)
             val client = OkHttpClient.Builder()
-                .sslSocketFactory(sslCtx.socketFactory, tm)
+                .sslSocketFactory(socketFactory, tm)
                 .hostnameVerifier { _, _ -> true }
                 .build()
             val response = client.newCall(Request.Builder().url(protectedUrl).get().build()).execute()

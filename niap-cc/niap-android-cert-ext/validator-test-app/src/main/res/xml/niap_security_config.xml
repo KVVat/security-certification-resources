@@ -42,8 +42,11 @@
     
     <!-- Other constraints -->
     
-    <!-- Enforce TLS 1.2 or higher. -->
-    <enforce-tls-1-2>true</enforce-tls-1-2>
+    <!-- Pin connections strictly to TLS 1.2 only (disables TLS 1.3). Default is false (allows TLS 1.2 and TLS 1.3). -->
+    <enforce-tls-1-2>false</enforce-tls-1-2>
+
+    <!-- Require TLS Extended Master Secret (EMS, RFC 7627) on TLS 1.2 connections (FCS_TLSC_EXT.1). -->
+    <require-extended-master-secret>true</require-extended-master-secret>
     
     <!-- Enforce checks for mandatory extensions (AKID, SKID, KeyUsage). Required by FIA_X509_EXT.1.2. -->
     <enforce-mandatory-extensions>true</enforce-mandatory-extensions>

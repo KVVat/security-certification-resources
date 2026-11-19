@@ -89,8 +89,11 @@ Validation rules are loaded declaratively from an XML resource (typically `res/x
     <!-- Trust anchor policy (SYSTEM_CA_ONLY, USER_CA_ONLY, BOTH_CA). -->
     <trust-anchor-policy>BOTH_CA</trust-anchor-policy>
     
-    <!-- Enforce TLS 1.2 or higher. -->
-    <enforce-tls-1-2>true</enforce-tls-1-2>
+    <!-- Pin connections strictly to TLS 1.2 only (disables TLS 1.3). Default is false (allows TLS 1.2 and TLS 1.3). -->
+    <enforce-tls-1-2>false</enforce-tls-1-2>
+    
+    <!-- Require TLS Extended Master Secret (EMS, RFC 7627) on TLS 1.2 connections (FCS_TLSC_EXT.1). -->
+    <require-extended-master-secret>true</require-extended-master-secret>
     
     <!-- Enforce checks for mandatory extensions (AKID, SKID, KeyUsage). Required by FIA_X509_EXT.1.2. -->
     <enforce-mandatory-extensions>true</enforce-mandatory-extensions>
@@ -105,6 +108,9 @@ Validation rules are loaded declaratively from an XML resource (typically `res/x
     <enforce-ca-constraints>true</enforce-ca-constraints>
 </niap-security-config>
 ```
+
+> **Note on `<enforce-tls-1-2>`:**  
+> By default (`false` or omitted), both **TLS 1.2** (with mandatory EMS enforcement) and **TLS 1.3** are enabled (TLS 1.1 and earlier are already disabled by the Android platform on `minSdk = 32+`). Only set `<enforce-tls-1-2>true</enforce-tls-1-2>` if you specifically need to pin connections to **TLS 1.2 only** and prevent TLS 1.3 from being advertised.
 
 ---
 

@@ -36,6 +36,7 @@ class NetworkWorker(context: Context, params: WorkerParameters) : Worker(context
     override fun doWork(): Result {
         val urlString = inputData.getString("url") ?: return Result.failure()
         val type = inputData.getString("type") ?: "http"
+        val caB64 = inputData.getString("ca_b64")
         Log.d("NetworkWorker", "Starting request to $urlString using $type")
 
         try {
@@ -45,9 +46,21 @@ class NetworkWorker(context: Context, params: WorkerParameters) : Worker(context
             helper.validateUrl(urlString)
             Log.d("NetworkWorker", "validateUrl passed")
 
+            val customTrustAnchors = if (!caB64.isNullOrEmpty()) {
+                val caBytes = android.util.Base64.decode(caB64, android.util.Base64.DEFAULT)
+                mapOf("test_ca" to java.io.ByteArrayInputStream(caBytes))
+            } else {
+                null
+            }
+
             if (type == "okhttp3") {
                 Log.d("NetworkWorker", "Configuring OkHttp")
-                val client = helper.configureOkHttp(OkHttpClient.Builder()).build()
+                val clientBuilder = if (customTrustAnchors != null) {
+                    helper.configureOkHttp(OkHttpClient.Builder(), customTrustAnchors)
+                } else {
+                    helper.configureOkHttp(OkHttpClient.Builder())
+                }
+                val client = clientBuilder.build()
                 Log.d("NetworkWorker", "OkHttp configured")
                 
                 val request = Request.Builder()
@@ -62,6 +75,9 @@ class NetworkWorker(context: Context, params: WorkerParameters) : Worker(context
             } else {
                 val url = URL(urlString)
                 val connection = helper.openConnection(url)
+                if (customTrustAnchors != null) {
+                    connection.sslSocketFactory = helper.createSSLSocketFactory(customTrustAnchors)
+                }
                 connection.hostnameVerifier = javax.net.ssl.HostnameVerifier { hostname, session ->
                     Log.d("NetworkWorker", "Verifying hostname: $hostname")
                     helper.checkHostname(hostname, session)

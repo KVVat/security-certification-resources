@@ -35,16 +35,20 @@ class MainActivity : AppCompatActivity() {
 
         val url = intent.getStringExtra("openurl") ?: "https://www.google.com"
         val type = intent.getStringExtra("type") ?: "http"
+        val caB64 = intent.getStringExtra("ca_b64")
         val buildTime = "2026-05-15 16:19"
         Log.d("TestApp", "Build Time: $buildTime")
         Log.d("TestApp", "URL to test: $url with type: $type")
         
         textView.text = "Build Time: $buildTime\nTesting $url using $type..."
 
-        val data = Data.Builder()
+        val dataBuilder = Data.Builder()
             .putString("url", url)
             .putString("type", type)
-            .build()
+        if (!caB64.isNullOrEmpty()) {
+            dataBuilder.putString("ca_b64", caB64)
+        }
+        val data = dataBuilder.build()
 
         val workRequest = OneTimeWorkRequest.Builder(NetworkWorker::class.java)
             .setInputData(data)

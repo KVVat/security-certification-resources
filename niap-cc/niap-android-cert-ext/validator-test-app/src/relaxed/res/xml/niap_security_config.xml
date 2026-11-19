@@ -33,7 +33,8 @@
     
     <trust-anchor-policy>BOTH_CA</trust-anchor-policy>
     
-    <enforce-tls-1-2>true</enforce-tls-1-2>
+    <enforce-tls-1-2>false</enforce-tls-1-2>
+    <require-extended-master-secret>false</require-extended-master-secret>
     <enforce-mandatory-extensions>true</enforce-mandatory-extensions>
     <enforce-eku>true</enforce-eku>
     <required-eku>serverAuth</required-eku>
