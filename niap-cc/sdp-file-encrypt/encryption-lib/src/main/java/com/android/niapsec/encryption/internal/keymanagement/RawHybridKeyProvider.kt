@@ -753,10 +753,9 @@ class RawHybridKeyProvider(
             var masterKey: Key? = null
             var dekSpec: CleanSecretKeySpec? = null
 
+            var streamReturned = false
             try {
                 SecureRandom().nextBytes(dekBytes)
-                
-
                 
                 dekSpec = CleanSecretKeySpec(dekBytes, DEK_ALGORITHM)
 
@@ -782,22 +781,29 @@ class RawHybridKeyProvider(
                 dos.write(dataIv)
                 dos.flush()
 
-                // Do not zeroize IVs here, as they might be references to Cipher internal state depending on provider.
-                // Leave them for GC or explicit wipe on close if we can track it.
+                val keySpecForClose = dekSpec
+                streamReturned = true
+                return object : java.io.FilterOutputStream(CipherOutputStream(ciphertext, dataCipher)) {
+                    override fun write(b: ByteArray, off: Int, len: Int) {
+                        out.write(b, off, len)
+                    }
 
-                return CipherOutputStream(ciphertext, dataCipher)
+                    override fun close() {
+                        try {
+                            super.close()
+                        } finally {
+                            keySpecForClose?.let { if (!it.isDestroyed) it.destroy() }
+                        }
+                    }
+                }
             } finally {
                 SecurityAuditLogger.logLine("===== Stream Encrypt symmetric =====")
                 SecurityAuditLogger.logKeyMaterial("Symmetric UDR Key (used as KEK)", masterKey?.encoded)
                 SecurityAuditLogger.logKeyMaterial("Data Encryption Key (DEK)", dekBytes)
                 dekBytes.fill(0)
-                // [FCS_CKM_EXT.4] & [FCS_STG_EXT.2] PREMATURE ZEROIZATION FIX: Do not destroy the key before stream is read.
-                // we should destroy it on close() of the stream.
-                // dekSpec?.let {
-                //     if (!it.isDestroyed) {
-                //         it.destroy()
-                //     }
-                // }
+                if (!streamReturned) {
+                    dekSpec?.let { if (!it.isDestroyed) it.destroy() }
+                }
             }
         }
 
@@ -810,29 +816,28 @@ class RawHybridKeyProvider(
 
             var dekSpec: CleanSecretKeySpec? = null
             var kekSpec: CleanSecretKeySpec? = null
+            var streamReturned = false
 
             try {
                 SecureRandom().nextBytes(dekBytes)
                 dekSpec = CleanSecretKeySpec(dekBytes, DEK_ALGORITHM)
 
                 val ephemeralKpg = KeyPairGenerator.getInstance(EC_KEY_ALGORITHM).apply { initialize(ECGenParameterSpec("secp521r1")) }
-val keyPair = ephemeralKpg.generateKeyPair()
-
-ephemeralKeyPair = keyPair
-
+                val keyPair = ephemeralKpg.generateKeyPair()
+                ephemeralKeyPair = keyPair
 
                 val keyAgreement = KeyAgreement.getInstance(KEY_AGREEMENT_ALGORITHM)
-keyAgreement.init(keyPair.private)
+                keyAgreement.init(keyPair.private)
 
                 keyAgreement.doPhase(recipientPubKey, true)
                 sharedSecret = keyAgreement.generateSecret()
 
-kekBytes =
-        hkdfDerive(
-                sharedSecret!!,
-                masterKeyAlias.toByteArray(Charsets.UTF_8),
-                keyPair.public.encoded
-        )
+                kekBytes =
+                    hkdfDerive(
+                        sharedSecret!!,
+                        masterKeyAlias.toByteArray(Charsets.UTF_8),
+                        keyPair.public.encoded
+                    )
 
                 kekSpec = CleanSecretKeySpec(kekBytes, DEK_ALGORITHM)
 
@@ -849,7 +854,7 @@ kekBytes =
                 // Write Header directly to the output stream
                 val dos = DataOutputStream(ciphertext)
                 dos.writeByte(MAGIC_BYTE_ASYMMETRIC.toInt())
-val ephKeyBytes = keyPair.public.encoded
+                val ephKeyBytes = keyPair.public.encoded
 
                 dos.writeInt(ephKeyBytes.size)
                 dos.write(ephKeyBytes)
@@ -861,8 +866,23 @@ val ephKeyBytes = keyPair.public.encoded
                 dos.write(dataIv)
                 dos.flush()
 
+                // [FCS_CKM_EXT.4] Defer DEK zeroization until stream close() so lazy JCA/Conscrypt
+                // AEAD context initialization does not read a zeroed key buffer.
+                val keySpecForClose = dekSpec
+                streamReturned = true
+                return object : java.io.FilterOutputStream(CipherOutputStream(ciphertext, dataCipher)) {
+                    override fun write(b: ByteArray, off: Int, len: Int) {
+                        out.write(b, off, len)
+                    }
 
-                return CipherOutputStream(ciphertext, dataCipher)
+                    override fun close() {
+                        try {
+                            super.close()
+                        } finally {
+                            keySpecForClose?.let { if (!it.isDestroyed) it.destroy() }
+                        }
+                    }
+                }
             } finally {
                 SecurityAuditLogger.logLine("===== Stream Encrypt asymmetric =====")
                 SecurityAuditLogger.logKeyMaterial("Ephemeral Key Pair Public Key", ephemeralKeyPair?.public?.encoded)
@@ -878,10 +898,11 @@ val ephKeyBytes = keyPair.public.encoded
                 SecurityAuditLogger.logKeyMaterial("Data Encryption Key (DEK)", dekBytes)
                 dekBytes.fill(0); sharedSecret?.fill(0); kekBytes?.fill(0)
 
-                dekSpec?.let { if (!it.isDestroyed) it.destroy() }
+                if (!streamReturned) {
+                    dekSpec?.let { if (!it.isDestroyed) it.destroy() }
+                }
 
                 kekSpec?.let { if (!it.isDestroyed) it.destroy() }
-
             }
         }
 
@@ -936,7 +957,16 @@ val ephKeyBytes = keyPair.public.encoded
                         dataCipher.init(Cipher.DECRYPT_MODE, dekSpec, GCMParameterSpec(GCM_TAG_LENGTH_BITS, dataIv))
                         dataCipher.updateAAD(associatedData)
 
-                        return CipherInputStream(ciphertext, dataCipher)
+                        val keySpecForClose = dekSpec
+                        return object : java.io.FilterInputStream(CipherInputStream(ciphertext, dataCipher)) {
+                            override fun close() {
+                                try {
+                                    super.close()
+                                } finally {
+                                    keySpecForClose?.let { if (!it.isDestroyed) it.destroy() }
+                                }
+                            }
+                        }
                     } finally {
                         SecurityAuditLogger.logLine("===== Stream Decrypt asymmetric =====")
                         SecurityAuditLogger.logKeyMaterial("Recipient UDR Key Pair (Private Key)", recipientPrivateKey.encoded)
@@ -989,7 +1019,16 @@ val ephKeyBytes = keyPair.public.encoded
                         )
                         dataCipher.updateAAD(associatedData)
 
-                        return CipherInputStream(ciphertext, dataCipher)
+                        val keySpecForClose = dekSpec
+                        return object : java.io.FilterInputStream(CipherInputStream(ciphertext, dataCipher)) {
+                            override fun close() {
+                                try {
+                                    super.close()
+                                } finally {
+                                    keySpecForClose?.let { if (!it.isDestroyed) it.destroy() }
+                                }
+                            }
+                        }
                     } finally {
                         SecurityAuditLogger.logLine("===== Stream Decrypt symmetric =====")
                         SecurityAuditLogger.logKeyMaterial("Symmetric UDR Key (used as KEK)",

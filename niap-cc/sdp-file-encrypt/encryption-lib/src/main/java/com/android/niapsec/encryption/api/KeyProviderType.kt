@@ -35,5 +35,13 @@ enum class KeyProviderType {
     /**
      * Uses the RawHybridKeyProvider, which implements a hybrid encryption scheme using raw JCA.
      */
-    RAW_HYBRID
+    RAW_HYBRID,
+
+    /**
+     * INSECURE / DEMO COMPARISON ONLY:
+     * Uses NoOpKeyProvider, which stores data in plaintext without any cryptographic protection
+     * or lock-state enforcement. Retained strictly to contrast unencrypted storage against
+     * SDP-protected providers in demonstrations.
+     */
+    NONE
 }

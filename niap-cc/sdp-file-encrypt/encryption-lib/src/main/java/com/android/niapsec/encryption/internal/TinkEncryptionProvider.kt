@@ -144,8 +144,21 @@ class TinkEncryptionProvider(
             }
 
             val newCiphertext = keyProvider.rewrapKeyToSymmetricUdr(actualCiphertext)
-            file.writeBytes(providerHeader + newCiphertext)
+            val tmpFile = File(file.parentFile, "${file.name}.rewrap.tmp")
+            try {
+                tmpFile.writeBytes(providerHeader + newCiphertext)
+                if (!tmpFile.renameTo(file)) {
+                    file.writeBytes(providerHeader + newCiphertext)
+                }
+            } finally {
+                if (tmpFile.exists()) {
+                    tmpFile.delete()
+                }
+            }
             true
+        } catch (e: NotImplementedError) {
+            Log.d("TinkEncryptionProvider", "Rewrap not supported by current KeyProvider")
+            false
         } catch (e: Exception) {
             Log.e("TinkEncryptionProvider", "Failed to rewrap file: $path", e)
             false
@@ -153,12 +166,33 @@ class TinkEncryptionProvider(
     }
 
     override fun sweepAndRewrapPendingFiles() {
-        val filesDir = context.filesDir
-        filesDir.listFiles()?.forEach { file ->
-            if (file.isFile) {
-                rewrapFileKey(Uri.fromFile(file))
+        sweepAndRewrapDirectory(context.filesDir)
+    }
+
+    override fun sweepAndRewrapDirectory(targetDir: File): Int {
+        if (!targetDir.exists() || !targetDir.isDirectory) return 0
+        var rewrappedCount = 0
+        targetDir.listFiles()?.forEach { file ->
+            if (file.isFile && !file.name.endsWith(".tmp")) {
+                try {
+                    val fileBytes = file.readBytes()
+                    if (fileBytes.size > providerHeader.size) {
+                        val header = fileBytes.copyOfRange(0, providerHeader.size)
+                        val actualCiphertext = fileBytes.copyOfRange(providerHeader.size, fileBytes.size)
+                        if (header.contentEquals(providerHeader) && !keyProvider.isSymmetricallyWrapped(actualCiphertext)) {
+                            if (rewrapFileKey(Uri.fromFile(file))) {
+                                rewrappedCount++
+                            }
+                        }
+                    }
+                } catch (e: NotImplementedError) {
+                    return 0
+                } catch (e: Exception) {
+                    Log.w("TinkEncryptionProvider", "Sweep skipped file: ${file.name}", e)
+                }
             }
         }
+        return rewrappedCount
     }
 
     override fun destroy() {

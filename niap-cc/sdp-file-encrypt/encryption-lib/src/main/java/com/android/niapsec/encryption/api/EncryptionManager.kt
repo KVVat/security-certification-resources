@@ -21,6 +21,7 @@ import android.util.Log
 import com.android.niapsec.encryption.internal.EncryptionProvider
 import com.android.niapsec.encryption.internal.TinkEncryptionProvider
 import com.android.niapsec.encryption.internal.keymanagement.HybridKeyProvider
+import com.android.niapsec.encryption.internal.keymanagement.NoOpKeyProvider
 import com.android.niapsec.encryption.internal.keymanagement.RawHybridKeyProvider
 import com.android.niapsec.encryption.internal.keymanagement.RawKeyProvider
 import java.io.File
@@ -33,7 +34,7 @@ import java.io.OutputStream
 class EncryptionManager(
     context: Context,
     masterKeyUri: String,
-    providerType: KeyProviderType = KeyProviderType.HYBRID,
+    val providerType: KeyProviderType = KeyProviderType.HYBRID,
     unlockedDeviceRequired: Boolean = false,
     lockStatePollCount: Int = 5,
     lockStatePollIntervalMs: Long = 100,
@@ -43,13 +44,16 @@ class EncryptionManager(
                 RawKeyProvider(context, masterKeyUri.replace("android-keystore://", ""), unlockedDeviceRequired)
             KeyProviderType.HYBRID ->
                 HybridKeyProvider(context, masterKeyUri, unlockedDeviceRequired, "tink_keyset_${masterKeyUri.replace("android-keystore://", "")}")
-          KeyProviderType.RAW_HYBRID ->
+            KeyProviderType.RAW_HYBRID ->
                 RawHybridKeyProvider(context, masterKeyUri, unlockedDeviceRequired, "tink_keyset_${masterKeyUri.replace("android-keystore://", "")}", lockStatePollCount, lockStatePollIntervalMs)
+            KeyProviderType.NONE ->
+                NoOpKeyProvider()
         },
         when (providerType) {
             KeyProviderType.RAW -> "ERAW".toByteArray()
             KeyProviderType.HYBRID -> "EHBT".toByteArray()
             KeyProviderType.RAW_HYBRID -> "EHBR".toByteArray()
+            KeyProviderType.NONE -> "NONE".toByteArray()
         }
     )
 ) {
@@ -167,5 +171,15 @@ class EncryptionManager(
      */
     fun sweepAndRewrapPendingFiles() {
         encryptionProvider.sweepAndRewrapPendingFiles()
+    }
+
+    /**
+     * Sweeps a specific directory (such as a messages folder or Device Protected storage
+     * directory) and re-wraps pending asymmetrically encrypted files to the symmetric scheme.
+     *
+     * @return Number of files transitioned from asymmetric to symmetric wrapping.
+     */
+    fun sweepAndRewrapDirectory(targetDir: File): Int {
+        return encryptionProvider.sweepAndRewrapDirectory(targetDir)
     }
 }

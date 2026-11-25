@@ -65,6 +65,12 @@ interface EncryptionProvider {
     fun sweepAndRewrapPendingFiles()
 
     /**
+     * Sweeps [targetDir] and re-wraps pending asymmetrically encrypted files to the symmetric
+     * UDR scheme, returning the count of files transitioned during this sweep.
+     */
+    fun sweepAndRewrapDirectory(targetDir: File): Int
+
+    /**
      * Destroys any cryptographic material associated with this provider.
      */
     fun destroy()
