@@ -24,6 +24,8 @@ import android.util.Log
 import androidx.core.content.edit
 import com.android.niapsec.encryption.tools.CleanSecretKeySpec
 import com.android.niapsec.encryption.tools.SafeHkdf
+import com.android.niapsec.encryption.internal.ZeroizingCipherDecryptInputStream
+import com.android.niapsec.encryption.internal.ZeroizingCipherEncryptOutputStream
 import com.android.niapsec.encryption.tools.SecurityAuditLogger
 import com.google.crypto.tink.Aead
 import com.google.crypto.tink.StreamingAead
@@ -48,8 +50,6 @@ import java.security.SecureRandom
 import java.security.spec.ECGenParameterSpec
 import java.security.spec.X509EncodedKeySpec
 import javax.crypto.Cipher
-import javax.crypto.CipherInputStream
-import javax.crypto.CipherOutputStream
 import javax.crypto.KeyAgreement
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
@@ -783,19 +783,7 @@ class RawHybridKeyProvider(
 
                 val keySpecForClose = dekSpec
                 streamReturned = true
-                return object : java.io.FilterOutputStream(CipherOutputStream(ciphertext, dataCipher)) {
-                    override fun write(b: ByteArray, off: Int, len: Int) {
-                        out.write(b, off, len)
-                    }
-
-                    override fun close() {
-                        try {
-                            super.close()
-                        } finally {
-                            keySpecForClose?.let { if (!it.isDestroyed) it.destroy() }
-                        }
-                    }
-                }
+                return ZeroizingCipherEncryptOutputStream(ciphertext, dataCipher, keySpecForClose)
             } finally {
                 SecurityAuditLogger.logLine("===== Stream Encrypt symmetric =====")
                 SecurityAuditLogger.logKeyMaterial("Symmetric UDR Key (used as KEK)", masterKey?.encoded)
@@ -870,19 +858,7 @@ class RawHybridKeyProvider(
                 // AEAD context initialization does not read a zeroed key buffer.
                 val keySpecForClose = dekSpec
                 streamReturned = true
-                return object : java.io.FilterOutputStream(CipherOutputStream(ciphertext, dataCipher)) {
-                    override fun write(b: ByteArray, off: Int, len: Int) {
-                        out.write(b, off, len)
-                    }
-
-                    override fun close() {
-                        try {
-                            super.close()
-                        } finally {
-                            keySpecForClose?.let { if (!it.isDestroyed) it.destroy() }
-                        }
-                    }
-                }
+                return ZeroizingCipherEncryptOutputStream(ciphertext, dataCipher, keySpecForClose)
             } finally {
                 SecurityAuditLogger.logLine("===== Stream Encrypt asymmetric =====")
                 SecurityAuditLogger.logKeyMaterial("Ephemeral Key Pair Public Key", ephemeralKeyPair?.public?.encoded)
@@ -958,15 +934,7 @@ class RawHybridKeyProvider(
                         dataCipher.updateAAD(associatedData)
 
                         val keySpecForClose = dekSpec
-                        return object : java.io.FilterInputStream(CipherInputStream(ciphertext, dataCipher)) {
-                            override fun close() {
-                                try {
-                                    super.close()
-                                } finally {
-                                    keySpecForClose?.let { if (!it.isDestroyed) it.destroy() }
-                                }
-                            }
-                        }
+                        return ZeroizingCipherDecryptInputStream(ciphertext, dataCipher, keySpecForClose)
                     } finally {
                         SecurityAuditLogger.logLine("===== Stream Decrypt asymmetric =====")
                         SecurityAuditLogger.logKeyMaterial("Recipient UDR Key Pair (Private Key)", recipientPrivateKey.encoded)
@@ -1020,15 +988,7 @@ class RawHybridKeyProvider(
                         dataCipher.updateAAD(associatedData)
 
                         val keySpecForClose = dekSpec
-                        return object : java.io.FilterInputStream(CipherInputStream(ciphertext, dataCipher)) {
-                            override fun close() {
-                                try {
-                                    super.close()
-                                } finally {
-                                    keySpecForClose?.let { if (!it.isDestroyed) it.destroy() }
-                                }
-                            }
-                        }
+                        return ZeroizingCipherDecryptInputStream(ciphertext, dataCipher, keySpecForClose)
                     } finally {
                         SecurityAuditLogger.logLine("===== Stream Decrypt symmetric =====")
                         SecurityAuditLogger.logKeyMaterial("Symmetric UDR Key (used as KEK)",

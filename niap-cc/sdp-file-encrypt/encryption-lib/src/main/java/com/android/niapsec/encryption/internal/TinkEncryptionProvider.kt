@@ -20,8 +20,6 @@ import android.content.Context
 import android.net.Uri
 import android.util.Log
 import com.android.niapsec.encryption.internal.keymanagement.KeyProvider
-import java.io.ByteArrayInputStream
-import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -35,21 +33,37 @@ class TinkEncryptionProvider(
     private val providerHeader: ByteArray // [MDFPP] 4-byte Magic Header: ERAW, EHBT, or EHBR
 ) : EncryptionProvider {
 
-    // --- File Operations (In-Memory) ---
+    // --- File Operations (In-Memory, Zeroizing) ---
 
     override fun encrypt(file: File): OutputStream {
         val aead = keyProvider.getAead()
         val fileOutputStream = FileOutputStream(file)
         fileOutputStream.write(providerHeader)
 
-        return object : ByteArrayOutputStream() {
+        return object : OutputStream() {
+            private val buffer = ZeroizingByteArrayOutputStream(256)
+            private var closed = false
+
+            override fun write(b: Int) {
+                buffer.write(b)
+            }
+
+            override fun write(b: ByteArray, off: Int, len: Int) {
+                buffer.write(b, off, len)
+            }
+
             override fun close() {
+                if (closed) return
+                closed = true
+                var plainCopy: ByteArray? = null
                 try {
-                    val ciphertext = aead.encrypt(toByteArray(), providerHeader)
+                    plainCopy = buffer.toByteArrayCopy()
+                    val ciphertext = aead.encrypt(plainCopy, providerHeader)
                     fileOutputStream.write(ciphertext)
                 } finally {
+                    plainCopy?.fill(0)
+                    buffer.zeroize()
                     fileOutputStream.close()
-                    super.close()
                 }
             }
         }
@@ -65,7 +79,7 @@ class TinkEncryptionProvider(
             val ciphertext = fileInputStream.readBytes()
             val aead = keyProvider.getAead()
             val plaintext = aead.decrypt(ciphertext, providerHeader)
-            return ByteArrayInputStream(plaintext)
+            return ZeroizingByteArrayInputStream(plaintext)
         } finally {
             fileInputStream.close()
         }
