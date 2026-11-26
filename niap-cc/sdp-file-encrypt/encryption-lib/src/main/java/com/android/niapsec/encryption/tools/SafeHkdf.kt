@@ -15,9 +15,8 @@
 */
 
 package com.android.niapsec.encryption.tools
-import java.io.ByteArrayOutputStream
+
 import java.security.MessageDigest
-import kotlin.math.ceil
 
 object SafeHkdf {
     // FIPS 180-4 / FIPS 198-1: SHA-512 uses a 1024-bit (128-byte) block and a 512-bit (64-byte) output.
@@ -26,47 +25,52 @@ object SafeHkdf {
 
     /**
      * Computes HMAC-SHA512 using MessageDigest directly, without relying on JNI Mac.
+     * Deterministically zeroizes all intermediate key-derived buffers in `finally`.
      */
     private fun hmacSha512(key: ByteArray, data: ByteArray): ByteArray {
         val md = MessageDigest.getInstance("SHA-512")
         val paddedKey = ByteArray(SHA512_BLOCK_SIZE)
-
-        // Key padding based on HMAC specification
-        if (key.size > SHA512_BLOCK_SIZE) {
-            val hashedKey = md.digest(key)
-            System.arraycopy(hashedKey, 0, paddedKey, 0, hashedKey.size)
-            hashedKey.fill(0) // Immediately clear the intermediate buffer
-        } else {
-            System.arraycopy(key, 0, paddedKey, 0, key.size)
-        }
-
         val oPad = ByteArray(SHA512_BLOCK_SIZE)
         val iPad = ByteArray(SHA512_BLOCK_SIZE)
+        var innerHash: ByteArray? = null
 
-        for (i in 0 until SHA512_BLOCK_SIZE) {
-            oPad[i] = (paddedKey[i].toInt() xor 0x5c).toByte()
-            iPad[i] = (paddedKey[i].toInt() xor 0x36).toByte()
+        try {
+            // Key padding based on HMAC specification
+            if (key.size > SHA512_BLOCK_SIZE) {
+                val hashedKey = md.digest(key)
+                try {
+                    System.arraycopy(hashedKey, 0, paddedKey, 0, hashedKey.size)
+                } finally {
+                    hashedKey.fill(0) // Immediately clear the intermediate buffer
+                }
+            } else {
+                System.arraycopy(key, 0, paddedKey, 0, key.size)
+            }
+
+            for (i in 0 until SHA512_BLOCK_SIZE) {
+                oPad[i] = (paddedKey[i].toInt() xor 0x5c).toByte()
+                iPad[i] = (paddedKey[i].toInt() xor 0x36).toByte()
+            }
+
+            // Inner hash: H(iPad || data)
+            md.reset()
+            md.update(iPad)
+            md.update(data)
+            innerHash = md.digest()
+
+            // Outer hash: H(oPad || innerHash)
+            md.reset()
+            md.update(oPad)
+            md.update(innerHash)
+            return md.digest()
+        } finally {
+            // [CRITICAL] Ensure all used buffers are zero-cleared
+            paddedKey.fill(0)
+            oPad.fill(0)
+            iPad.fill(0)
+            innerHash?.fill(0)
+            md.reset()
         }
-
-        // Inner hash: H(iPad || data)
-        md.reset()
-        md.update(iPad)
-        md.update(data)
-        val innerHash = md.digest()
-
-        // Outer hash: H(oPad || innerHash)
-        md.reset()
-        md.update(oPad)
-        md.update(innerHash)
-        val mac = md.digest()
-
-        // [CRITICAL] Ensure all used buffers are zero-cleared
-        paddedKey.fill(0)
-        oPad.fill(0)
-        iPad.fill(0)
-        innerHash.fill(0)
-
-        return mac
     }
 
     /**
@@ -74,43 +78,51 @@ object SafeHkdf {
      *
      * The PRK from HKDF-Extract is the full, untruncated 64-byte HMAC-SHA512 output.
      * Only the final output keying material is truncated to [length] bytes (e.g., 32 bytes for AES-256).
+     *
+     * Writes directly into the exact-sized output array (avoiding `ByteArrayOutputStream` and
+     * `toByteArray().copyOf(length)`, which previously left two unzeroed 64-byte KEK copies on
+     * the ART heap on every invocation).
      */
     fun computeHkdf(ikm: ByteArray, salt: ByteArray?, info: ByteArray, length: Int): ByteArray {
+        require(length >= 0) { "Requested length must be non-negative" }
         val actualSalt = if (salt == null || salt.isEmpty()) ByteArray(SHA512_HASH_SIZE) else salt
 
         // 1. HKDF-Extract
         val prk = hmacSha512(actualSalt, ikm)
-
-        // 2. HKDF-Expand
-        val result = ByteArrayOutputStream()
+        val finalResult = ByteArray(length)
         var t = ByteArray(0)
-        val iterations = ceil(length.toDouble() / SHA512_HASH_SIZE).toInt()
 
-        require(iterations <= 255) { "Requested length is too large" }
+        try {
+            // 2. HKDF-Expand
+            val iterations = if (length == 0) 0 else (length + SHA512_HASH_SIZE - 1) / SHA512_HASH_SIZE
+            require(iterations <= 255) { "Requested length is too large" }
 
-        for (i in 1..iterations) {
-            val input = ByteArray(t.size + info.size + 1)
-            System.arraycopy(t, 0, input, 0, t.size)
-            System.arraycopy(info, 0, input, t.size, info.size)
-            input[input.size - 1] = i.toByte()
+            var offset = 0
+            for (i in 1..iterations) {
+                val input = ByteArray(t.size + info.size + 1)
+                try {
+                    System.arraycopy(t, 0, input, 0, t.size)
+                    System.arraycopy(info, 0, input, t.size, info.size)
+                    input[input.size - 1] = i.toByte()
 
-            if (t.isNotEmpty()) t.fill(0) // Clear previous T
+                    if (t.isNotEmpty()) t.fill(0) // Clear previous T
+                    t = hmacSha512(prk, input)
 
-            t = hmacSha512(prk, input)
-            result.write(t)
-
-            input.fill(0) // Clear temporary loop buffer
+                    val toCopy = minOf(t.size, length - offset)
+                    System.arraycopy(t, 0, finalResult, offset, toCopy)
+                    offset += toCopy
+                } finally {
+                    input.fill(0) // Clear temporary loop buffer
+                }
+            }
+            return finalResult
+        } catch (e: Exception) {
+            finalResult.fill(0)
+            throw e
+        } finally {
+            // [CRITICAL] Zero out PRK and the final T
+            prk.fill(0)
+            if (t.isNotEmpty()) t.fill(0)
         }
-
-        val finalResult = result.toByteArray().copyOf(length)
-
-        // [CRITICAL] Zero out PRK and the final T
-        prk.fill(0)
-        t.fill(0)
-
-        // Note: The actual ikm (sharedSecret) is expected to be cleared
-        // in the finally block of the caller (RawHybridKeyProvider).
-
-        return finalResult
     }
 }

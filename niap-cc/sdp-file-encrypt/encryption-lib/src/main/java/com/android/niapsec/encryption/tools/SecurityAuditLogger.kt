@@ -27,6 +27,13 @@ object SecurityAuditLogger {
     // toggle switch for audit
     var isAuditLogEnabled = true
 
+    /**
+     * Optional forensic/test observer invoked with transient key bytes immediately before
+     * zeroization. Always null in production; callers must never retain plaintext copies.
+     */
+    @Volatile
+    var keyMaterialObserver: ((name: String, bytes: ByteArray) -> Unit)? = null
+
     private const val TAG = "AUDIT_LOGGER KMD"
 
     fun logMaterial(tag: String = TAG, name: String, bytes: ByteArray?) {
@@ -42,6 +49,7 @@ object SecurityAuditLogger {
             Log.d("${name} KMD",  "returns null (error or hardware backend)")
             return
         }
+        keyMaterialObserver?.invoke(name, bytes)
 Log.d("${name} KMD", "[MASKED - Use bytes.toHExString() here to dump key]")
 
         bytes.fill(0)
